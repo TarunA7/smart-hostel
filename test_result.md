@@ -152,15 +152,18 @@ backend:
 
   - task: "Maintenance Request API"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/backend/server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Implemented maintenance request creation and status tracking system"
+      - working: true
+        agent: "testing"
+        comment: "✅ All maintenance request endpoints working perfectly. Tested: Create maintenance request (POST /api/maintenance), Get all requests (GET /api/maintenance), Update status (PUT /api/maintenance/{id}/status?status=<status>). Note: Status update requires query parameter format. All functionality working with proper error handling."
 
   - task: "Fee Management API"
     implemented: true
