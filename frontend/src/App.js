@@ -1,11 +1,337 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, createContext, useContext } from 'react';
 import './App.css';
 import axios from 'axios';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Auth Context
+const AuthContext = createContext();
+
+const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      // Verify token validity
+      checkAuthStatus();
+    } else {
+      setLoading(false);
+    }
+  }, [token]);
+
+  const checkAuthStatus = async () => {
+    try {
+      const response = await axios.get(`${API}/auth/me`);
+      setUser(response.data);
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      logout();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const login = async (username, password) => {
+    try {
+      const response = await axios.post(`${API}/auth/login`, {
+        username,
+        password
+      });
+      
+      const { access_token, user: userData } = response.data;
+      
+      localStorage.setItem('token', access_token);
+      setToken(access_token);
+      setUser(userData);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Login failed:', error);
+      return { 
+        success: false, 
+        error: error.response?.data?.detail || 'Login failed' 
+      };
+    }
+  };
+
+  const register = async (userData) => {
+    try {
+      const response = await axios.post(`${API}/auth/register`, userData);
+      
+      const { access_token, user: newUser } = response.data;
+      
+      localStorage.setItem('token', access_token);
+      setToken(access_token);
+      setUser(newUser);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Registration failed:', error);
+      return { 
+        success: false, 
+        error: error.response?.data?.detail || 'Registration failed' 
+      };
+    }
+  };
+
+  const logout = () => {
+    localStorage.removeItem('token');
+    setToken(null);
+    setUser(null);
+    delete axios.defaults.headers.common['Authorization'];
+  };
+
+  const value = {
+    user,
+    token,
+    login,
+    register,
+    logout,
+    loading
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+// Login Component
+const LoginForm = () => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [formData, setFormData] = useState({
+    username: '',
+    password: '',
+    email: '',
+    full_name: '',
+    phone: '',
+    student_id: '',
+    role: 'student'
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const { login, register } = useAuth();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      let result;
+      if (isLogin) {
+        result = await login(formData.username, formData.password);
+      } else {
+        result = await register(formData);
+      }
+
+      if (!result.success) {
+        setError(result.error);
+      }
+    } catch (error) {
+      setError('An unexpected error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-900 to-blue-600 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div>
+          <div className="flex justify-center">
+            <img 
+              src="https://images.unsplash.com/photo-1574275639052-4655b340a669?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwyfHxzdHVkZW50JTIwYWNjb21tb2RhdGlvbnxlbnwwfHx8Ymx1ZXwxNzUzNTI0MTc1fDA&ixlib=rb-4.1.0&q=85"
+              alt="Logo"
+              className="h-16 w-16 rounded-full"
+            />
+          </div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
+            {isLogin ? 'Sign in to your account' : 'Create your account'}
+          </h2>
+          <p className="mt-2 text-center text-sm text-blue-100">
+            Smart Hostel Management System
+          </p>
+        </div>
+
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          <div className="rounded-md shadow-sm space-y-4">
+            <div>
+              <label htmlFor="username" className="block text-sm font-medium text-white mb-1">
+                Username
+              </label>
+              <input
+                id="username"
+                name="username"
+                type="text"
+                required
+                className="appearance-none rounded-lg relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="Enter your username"
+                value={formData.username}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-white mb-1">
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                className="appearance-none rounded-lg relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="Enter your password"
+                value={formData.password}
+                onChange={handleChange}
+              />
+            </div>
+
+            {!isLogin && (
+              <>
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-white mb-1">
+                    Email
+                  </label>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    className="appearance-none rounded-lg relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Enter your email"
+                    value={formData.email}
+                    onChange={handleChange}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="full_name" className="block text-sm font-medium text-white mb-1">
+                    Full Name
+                  </label>
+                  <input
+                    id="full_name"
+                    name="full_name"
+                    type="text"
+                    required
+                    className="appearance-none rounded-lg relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Enter your full name"
+                    value={formData.full_name}
+                    onChange={handleChange}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="phone" className="block text-sm font-medium text-white mb-1">
+                    Phone (Optional)
+                  </label>
+                  <input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    className="appearance-none rounded-lg relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Enter your phone number"
+                    value={formData.phone}
+                    onChange={handleChange}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="role" className="block text-sm font-medium text-white mb-1">
+                    Role
+                  </label>
+                  <select
+                    id="role"
+                    name="role"
+                    required
+                    className="appearance-none rounded-lg relative block w-full px-3 py-2 border border-gray-300 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    value={formData.role}
+                    onChange={handleChange}
+                  >
+                    <option value="student">Student</option>
+                    <option value="warden">Warden</option>
+                  </select>
+                </div>
+
+                {formData.role === 'student' && (
+                  <div>
+                    <label htmlFor="student_id" className="block text-sm font-medium text-white mb-1">
+                      Student ID
+                    </label>
+                    <input
+                      id="student_id"
+                      name="student_id"
+                      type="text"
+                      required
+                      className="appearance-none rounded-lg relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                      placeholder="Enter your student ID"
+                      value={formData.student_id}
+                      onChange={handleChange}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            >
+              {loading ? 'Loading...' : (isLogin ? 'Sign in' : 'Sign up')}
+            </button>
+          </div>
+
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => setIsLogin(!isLogin)}
+              className="text-blue-100 hover:text-white"
+            >
+              {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// Main App Component
 const App = () => {
+  const { user, loading, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [stats, setStats] = useState(null);
   const [students, setStudents] = useState([]);
@@ -14,7 +340,7 @@ const App = () => {
   const [maintenance, setMaintenance] = useState([]);
   const [fees, setFees] = useState([]);
   const [movements, setMovements] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [appLoading, setAppLoading] = useState(false);
 
   // Form states
   const [studentForm, setStudentForm] = useState({
@@ -110,7 +436,7 @@ const App = () => {
   const createStudent = async (e) => {
     e.preventDefault();
     try {
-      setLoading(true);
+      setAppLoading(true);
       await axios.post(`${API}/students`, studentForm);
       setStudentForm({ name: '', email: '', phone: '', student_id: '' });
       loadStudents();
@@ -118,7 +444,7 @@ const App = () => {
     } catch (error) {
       console.error('Error creating student:', error);
     } finally {
-      setLoading(false);
+      setAppLoading(false);
     }
   };
 
@@ -126,7 +452,7 @@ const App = () => {
   const createRoom = async (e) => {
     e.preventDefault();
     try {
-      setLoading(true);
+      setAppLoading(true);
       await axios.post(`${API}/rooms`, {
         ...roomForm,
         floor: parseInt(roomForm.floor),
@@ -138,7 +464,7 @@ const App = () => {
     } catch (error) {
       console.error('Error creating room:', error);
     } finally {
-      setLoading(false);
+      setAppLoading(false);
     }
   };
 
@@ -146,7 +472,7 @@ const App = () => {
   const createVisitor = async (e) => {
     e.preventDefault();
     try {
-      setLoading(true);
+      setAppLoading(true);
       await axios.post(`${API}/visitors`, visitorForm);
       setVisitorForm({ name: '', phone: '', visiting_student_id: '', visiting_student_name: '', purpose: '' });
       loadVisitors();
@@ -154,7 +480,7 @@ const App = () => {
     } catch (error) {
       console.error('Error creating visitor:', error);
     } finally {
-      setLoading(false);
+      setAppLoading(false);
     }
   };
 
@@ -162,7 +488,7 @@ const App = () => {
   const createMaintenanceRequest = async (e) => {
     e.preventDefault();
     try {
-      setLoading(true);
+      setAppLoading(true);
       await axios.post(`${API}/maintenance`, maintenanceForm);
       setMaintenanceForm({ student_id: '', student_name: '', room_number: '', issue_type: '', description: '' });
       loadMaintenance();
@@ -170,7 +496,7 @@ const App = () => {
     } catch (error) {
       console.error('Error creating maintenance request:', error);
     } finally {
-      setLoading(false);
+      setAppLoading(false);
     }
   };
 
@@ -178,7 +504,7 @@ const App = () => {
   const createFeeRecord = async (e) => {
     e.preventDefault();
     try {
-      setLoading(true);
+      setAppLoading(true);
       await axios.post(`${API}/fees`, {
         ...feeForm,
         amount: parseFloat(feeForm.amount),
@@ -190,7 +516,7 @@ const App = () => {
     } catch (error) {
       console.error('Error creating fee record:', error);
     } finally {
-      setLoading(false);
+      setAppLoading(false);
     }
   };
 
@@ -198,7 +524,7 @@ const App = () => {
   const logMovement = async (e) => {
     e.preventDefault();
     try {
-      setLoading(true);
+      setAppLoading(true);
       await axios.post(`${API}/movements`, movementForm);
       setMovementForm({ student_id: '', student_name: '', action: '', note: '' });
       loadMovements();
@@ -207,7 +533,7 @@ const App = () => {
     } catch (error) {
       console.error('Error logging movement:', error);
     } finally {
-      setLoading(false);
+      setAppLoading(false);
     }
   };
 
@@ -246,14 +572,31 @@ const App = () => {
   };
 
   useEffect(() => {
-    loadStats();
-    loadStudents();
-    loadRooms();
-    loadVisitors();
-    loadMaintenance();
-    loadFees();
-    loadMovements();
-  }, []);
+    if (user) {
+      loadStats();
+      loadStudents();
+      loadRooms();
+      loadVisitors();
+      loadMaintenance();
+      loadFees();
+      loadMovements();
+    }
+  }, [user]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginForm />;
+  }
 
   const renderDashboard = () => (
     <div className="space-y-6">
@@ -264,7 +607,9 @@ const App = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-4xl font-bold text-white mb-2">Smart Hostel Management</h1>
-              <p className="text-xl text-blue-100">Comprehensive student accommodation management system</p>
+              <p className="text-xl text-blue-100">
+                Welcome back, {user.full_name} ({user.role})
+              </p>
             </div>
             <div className="hidden md:block">
               <img 
@@ -365,50 +710,52 @@ const App = () => {
 
   const renderStudents = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-xl font-bold mb-4">Add New Student</h2>
-        <form onSubmit={createStudent} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <input
-            type="text"
-            placeholder="Student Name"
-            value={studentForm.name}
-            onChange={(e) => setStudentForm({...studentForm, name: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="email"
-            placeholder="Email"
-            value={studentForm.email}
-            onChange={(e) => setStudentForm({...studentForm, email: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="tel"
-            placeholder="Phone"
-            value={studentForm.phone}
-            onChange={(e) => setStudentForm({...studentForm, phone: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="text"
-            placeholder="Student ID"
-            value={studentForm.student_id}
-            onChange={(e) => setStudentForm({...studentForm, student_id: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="md:col-span-2 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Adding...' : 'Add Student'}
-          </button>
-        </form>
-      </div>
+      {user.role === 'warden' && (
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold mb-4">Add New Student</h2>
+          <form onSubmit={createStudent} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input
+              type="text"
+              placeholder="Student Name"
+              value={studentForm.name}
+              onChange={(e) => setStudentForm({...studentForm, name: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="email"
+              placeholder="Email"
+              value={studentForm.email}
+              onChange={(e) => setStudentForm({...studentForm, email: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="tel"
+              placeholder="Phone"
+              value={studentForm.phone}
+              onChange={(e) => setStudentForm({...studentForm, phone: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="text"
+              placeholder="Student ID"
+              value={studentForm.student_id}
+              onChange={(e) => setStudentForm({...studentForm, student_id: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <button
+              type="submit"
+              disabled={appLoading}
+              className="md:col-span-2 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {appLoading ? 'Adding...' : 'Add Student'}
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h2 className="text-xl font-bold mb-4">Students List</h2>
@@ -450,42 +797,44 @@ const App = () => {
 
   const renderRooms = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-xl font-bold mb-4">Add New Room</h2>
-        <form onSubmit={createRoom} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <input
-            type="text"
-            placeholder="Room Number"
-            value={roomForm.room_number}
-            onChange={(e) => setRoomForm({...roomForm, room_number: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="number"
-            placeholder="Floor"
-            value={roomForm.floor}
-            onChange={(e) => setRoomForm({...roomForm, floor: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="number"
-            placeholder="Capacity"
-            value={roomForm.capacity}
-            onChange={(e) => setRoomForm({...roomForm, capacity: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="md:col-span-3 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Adding...' : 'Add Room'}
-          </button>
-        </form>
-      </div>
+      {user.role === 'warden' && (
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold mb-4">Add New Room</h2>
+          <form onSubmit={createRoom} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <input
+              type="text"
+              placeholder="Room Number"
+              value={roomForm.room_number}
+              onChange={(e) => setRoomForm({...roomForm, room_number: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="number"
+              placeholder="Floor"
+              value={roomForm.floor}
+              onChange={(e) => setRoomForm({...roomForm, floor: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="number"
+              placeholder="Capacity"
+              value={roomForm.capacity}
+              onChange={(e) => setRoomForm({...roomForm, capacity: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <button
+              type="submit"
+              disabled={appLoading}
+              className="md:col-span-3 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {appLoading ? 'Adding...' : 'Add Room'}
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h2 className="text-xl font-bold mb-4">Rooms List</h2>
@@ -514,7 +863,7 @@ const App = () => {
                   ></div>
                 </div>
               </div>
-              {room.status === 'available' && room.occupied < room.capacity && (
+              {user.role === 'warden' && room.status === 'available' && room.occupied < room.capacity && (
                 <div className="mt-3">
                   <select 
                     className="w-full p-2 border rounded mb-2"
@@ -536,58 +885,60 @@ const App = () => {
 
   const renderVisitors = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-xl font-bold mb-4">Register New Visitor</h2>
-        <form onSubmit={createVisitor} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <input
-            type="text"
-            placeholder="Visitor Name"
-            value={visitorForm.name}
-            onChange={(e) => setVisitorForm({...visitorForm, name: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="tel"
-            placeholder="Phone"
-            value={visitorForm.phone}
-            onChange={(e) => setVisitorForm({...visitorForm, phone: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="text"
-            placeholder="Visiting Student ID"
-            value={visitorForm.visiting_student_id}
-            onChange={(e) => setVisitorForm({...visitorForm, visiting_student_id: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="text"
-            placeholder="Visiting Student Name"
-            value={visitorForm.visiting_student_name}
-            onChange={(e) => setVisitorForm({...visitorForm, visiting_student_name: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="text"
-            placeholder="Purpose of Visit"
-            value={visitorForm.purpose}
-            onChange={(e) => setVisitorForm({...visitorForm, purpose: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 md:col-span-2"
-            required
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="md:col-span-2 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Registering...' : 'Register Visitor'}
-          </button>
-        </form>
-      </div>
+      {user.role === 'warden' && (
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold mb-4">Register New Visitor</h2>
+          <form onSubmit={createVisitor} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input
+              type="text"
+              placeholder="Visitor Name"
+              value={visitorForm.name}
+              onChange={(e) => setVisitorForm({...visitorForm, name: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="tel"
+              placeholder="Phone"
+              value={visitorForm.phone}
+              onChange={(e) => setVisitorForm({...visitorForm, phone: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="text"
+              placeholder="Visiting Student ID"
+              value={visitorForm.visiting_student_id}
+              onChange={(e) => setVisitorForm({...visitorForm, visiting_student_id: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="text"
+              placeholder="Visiting Student Name"
+              value={visitorForm.visiting_student_name}
+              onChange={(e) => setVisitorForm({...visitorForm, visiting_student_name: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="text"
+              placeholder="Purpose of Visit"
+              value={visitorForm.purpose}
+              onChange={(e) => setVisitorForm({...visitorForm, purpose: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 md:col-span-2"
+              required
+            />
+            <button
+              type="submit"
+              disabled={appLoading}
+              className="md:col-span-2 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {appLoading ? 'Registering...' : 'Register Visitor'}
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h2 className="text-xl font-bold mb-4">Visitors List</h2>
@@ -601,7 +952,9 @@ const App = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Purpose</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check In</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                {user.role === 'warden' && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                )}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -621,16 +974,18 @@ const App = () => {
                       {visitor.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {visitor.status === 'checked_in' && (
-                      <button
-                        onClick={() => checkoutVisitor(visitor.id)}
-                        className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
-                      >
-                        Check Out
-                      </button>
-                    )}
-                  </td>
+                  {user.role === 'warden' && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {visitor.status === 'checked_in' && (
+                        <button
+                          onClick={() => checkoutVisitor(visitor.id)}
+                          className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+                        >
+                          Check Out
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -692,10 +1047,10 @@ const App = () => {
           />
           <button
             type="submit"
-            disabled={loading}
+            disabled={appLoading}
             className="md:col-span-2 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
-            {loading ? 'Creating...' : 'Create Request'}
+            {appLoading ? 'Creating...' : 'Create Request'}
           </button>
         </form>
       </div>
@@ -731,64 +1086,66 @@ const App = () => {
 
   const renderFees = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-xl font-bold mb-4">Create Fee Record</h2>
-        <form onSubmit={createFeeRecord} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <input
-            type="text"
-            placeholder="Student ID"
-            value={feeForm.student_id}
-            onChange={(e) => setFeeForm({...feeForm, student_id: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="text"
-            placeholder="Student Name"
-            value={feeForm.student_name}
-            onChange={(e) => setFeeForm({...feeForm, student_name: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <select
-            value={feeForm.fee_type}
-            onChange={(e) => setFeeForm({...feeForm, fee_type: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          >
-            <option value="">Select Fee Type</option>
-            <option value="hostel_fee">Hostel Fee</option>
-            <option value="mess_fee">Mess Fee</option>
-            <option value="electricity">Electricity</option>
-            <option value="water">Water</option>
-            <option value="maintenance">Maintenance</option>
-          </select>
-          <input
-            type="number"
-            step="0.01"
-            placeholder="Amount"
-            value={feeForm.amount}
-            onChange={(e) => setFeeForm({...feeForm, amount: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="date"
-            placeholder="Due Date"
-            value={feeForm.due_date}
-            onChange={(e) => setFeeForm({...feeForm, due_date: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 md:col-span-2"
-            required
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="md:col-span-2 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Creating...' : 'Create Fee Record'}
-          </button>
-        </form>
-      </div>
+      {user.role === 'warden' && (
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold mb-4">Create Fee Record</h2>
+          <form onSubmit={createFeeRecord} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input
+              type="text"
+              placeholder="Student ID"
+              value={feeForm.student_id}
+              onChange={(e) => setFeeForm({...feeForm, student_id: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="text"
+              placeholder="Student Name"
+              value={feeForm.student_name}
+              onChange={(e) => setFeeForm({...feeForm, student_name: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <select
+              value={feeForm.fee_type}
+              onChange={(e) => setFeeForm({...feeForm, fee_type: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            >
+              <option value="">Select Fee Type</option>
+              <option value="hostel_fee">Hostel Fee</option>
+              <option value="mess_fee">Mess Fee</option>
+              <option value="electricity">Electricity</option>
+              <option value="water">Water</option>
+              <option value="maintenance">Maintenance</option>
+            </select>
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Amount"
+              value={feeForm.amount}
+              onChange={(e) => setFeeForm({...feeForm, amount: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="date"
+              placeholder="Due Date"
+              value={feeForm.due_date}
+              onChange={(e) => setFeeForm({...feeForm, due_date: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 md:col-span-2"
+              required
+            />
+            <button
+              type="submit"
+              disabled={appLoading}
+              className="md:col-span-2 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {appLoading ? 'Creating...' : 'Create Fee Record'}
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h2 className="text-xl font-bold mb-4">Fee Records</h2>
@@ -801,7 +1158,9 @@ const App = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Due Date</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                {user.role === 'warden' && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                )}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -822,16 +1181,18 @@ const App = () => {
                       {fee.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {fee.status !== 'paid' && (
-                      <button
-                        onClick={() => payFee(fee.id)}
-                        className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
-                      >
-                        Mark Paid
-                      </button>
-                    )}
-                  </td>
+                  {user.role === 'warden' && (
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {fee.status !== 'paid' && (
+                        <button
+                          onClick={() => payFee(fee.id)}
+                          className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
+                        >
+                          Mark Paid
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -843,51 +1204,53 @@ const App = () => {
 
   const renderMovements = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-xl font-bold mb-4">Log Student Movement</h2>
-        <form onSubmit={logMovement} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <input
-            type="text"
-            placeholder="Student ID"
-            value={movementForm.student_id}
-            onChange={(e) => setMovementForm({...movementForm, student_id: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <input
-            type="text"
-            placeholder="Student Name"
-            value={movementForm.student_name}
-            onChange={(e) => setMovementForm({...movementForm, student_name: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          />
-          <select
-            value={movementForm.action}
-            onChange={(e) => setMovementForm({...movementForm, action: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
-          >
-            <option value="">Select Action</option>
-            <option value="check_in">Check In</option>
-            <option value="check_out">Check Out</option>
-          </select>
-          <input
-            type="text"
-            placeholder="Note (optional)"
-            value={movementForm.note}
-            onChange={(e) => setMovementForm({...movementForm, note: e.target.value})}
-            className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="md:col-span-2 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Logging...' : 'Log Movement'}
-          </button>
-        </form>
-      </div>
+      {user.role === 'warden' && (
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold mb-4">Log Student Movement</h2>
+          <form onSubmit={logMovement} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input
+              type="text"
+              placeholder="Student ID"
+              value={movementForm.student_id}
+              onChange={(e) => setMovementForm({...movementForm, student_id: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <input
+              type="text"
+              placeholder="Student Name"
+              value={movementForm.student_name}
+              onChange={(e) => setMovementForm({...movementForm, student_name: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+            <select
+              value={movementForm.action}
+              onChange={(e) => setMovementForm({...movementForm, action: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            >
+              <option value="">Select Action</option>
+              <option value="check_in">Check In</option>
+              <option value="check_out">Check Out</option>
+            </select>
+            <input
+              type="text"
+              placeholder="Note (optional)"
+              value={movementForm.note}
+              onChange={(e) => setMovementForm({...movementForm, note: e.target.value})}
+              className="p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={appLoading}
+              className="md:col-span-2 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {appLoading ? 'Logging...' : 'Log Movement'}
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h2 className="text-xl font-bold mb-4">Movement History</h2>
@@ -938,21 +1301,34 @@ const App = () => {
               />
               <h1 className="text-xl font-bold text-gray-800">Smart Hostel</h1>
             </div>
-            <div className="flex space-x-1">
-              {tabs.map((tab) => (
+            <div className="flex items-center space-x-4">
+              <div className="flex space-x-1">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      activeTab === tab.id
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    <span className="mr-2">{tab.icon}</span>
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-600">
+                  {user.full_name} ({user.role})
+                </span>
                 <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    activeTab === tab.id
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                  }`}
+                  onClick={logout}
+                  className="text-red-600 hover:text-red-700 text-sm"
                 >
-                  <span className="mr-2">{tab.icon}</span>
-                  {tab.label}
+                  Logout
                 </button>
-              ))}
+              </div>
             </div>
           </div>
         </div>
@@ -972,4 +1348,12 @@ const App = () => {
   );
 };
 
-export default App;
+const MainApp = () => {
+  return (
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  );
+};
+
+export default MainApp;
