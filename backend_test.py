@@ -240,7 +240,7 @@ class HostelAPITester:
         
         # Test 3: Update Maintenance Status
         request_id = self.test_data['maintenance']['id']
-        response = self.make_request('PUT', f'/maintenance/{request_id}/status', {"status": "in_progress"})
+        response = self.make_request('PUT', f'/maintenance/{request_id}/status?status=in_progress')
         if response['success']:
             self.log_result("Update Maintenance Status", True, "Updated status to in_progress")
         else:
